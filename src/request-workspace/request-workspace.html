@@ -79,11 +79,12 @@ the License.
         <paper-icon-button id="add-request-button" icon="arc:add" on-tap="_addRequestHandler" title="Add new request editor"></paper-icon-button>
       </paper-tabs>
     </div>
-    <iron-pages id="requests" selected-attribute="opened" selected="[[selected]]" selectable=".panel">
+    <div id="requestsContainer"></div>
+    <!-- <iron-pages id="requests" selected-attribute="opened" selected="[[selected]]" selectable=".panel">
       <template is="dom-repeat" items="{{activeRequests}}" on-dom-change="_panelRendered">
         <arc-request-panel request-panel-id="[[index]]" class="panel" request="{{item}}"></arc-request-panel>
       </template>
-    </iron-pages>
+    </iron-pages> -->
     <paper-toast text="Can't restore request data. The type is unknown." id="typeMissingToast"></paper-toast>
     <paper-toast text="Request do not exists in local database." id="missingRequestToast"></paper-toast>
   </template>
@@ -103,7 +104,6 @@ the License.
         // Currently selected request tab
         selected: {
           type: Number,
-          value: 0,
           notify: true
         },
         __ready: Boolean,
@@ -235,14 +235,16 @@ the License.
         if (!data || !data.requests) {
           return Promise.resolve();
         }
-        this.__toRestore = {
-          requests: Array.from(data.requests),
-          selected: data.selected
-        };
-        return new Promise((resolve) => {
-          this.__toRestore.promise = resolve;
-          this._restoreNext();
-        });
+        this.set('activeRequests', Array.from(data.requests));
+        return Promise.resolve();
+        // this.__toRestore = {
+        //   requests: Array.from(data.requests),
+        //   selected: data.selected
+        // };
+        // return new Promise((resolve) => {
+        //   this.__toRestore.promise = resolve;
+        //   this._restoreNext();
+        // });
       },
       /**
        * Rleated to `_worspaceStateRestored()` function.
@@ -287,9 +289,7 @@ the License.
         let next = this.__toRestore.requests.shift();
         let panel = this._getPanel(this.activeRequests.length - 1);
         panel.proxyRequest = next;
-        Polymer.RenderStatus.afterNextRender(this, () => {
-          this._restoreNext();
-        });
+        this._restoreNext();
       },
 
       // A handler for "add" icon click.
@@ -388,10 +388,56 @@ the License.
         if (this._restoringWorkspace) {
           return;
         }
-        if (selected !== this.requestRoute.tab) {
+        if (String(selected) !== this.requestRoute.tab) {
           this.set('requestRoute.tab', selected);
           this.state.updateSelected(selected);
         }
+        this._ensurePanelVisible(selected);
+      },
+
+      _ensurePanelVisible: function(index) {
+        this._hideVisiblePanel();
+        const selector = `#requestsContainer arc-request-panel[request-panel-id="${index}"]`;
+        let panel = Polymer.dom(this.root).querySelector(selector);
+        if (!panel) {
+          panel = this._createPanelForIndex(index);
+        }
+        if (panel.hasAttribute('hidden')) {
+          panel.removeAttribute('hidden');
+        }
+        panel.dataset.visible = true;
+      },
+
+      _hideVisiblePanel: function() {
+        const selector = `arc-request-panel[data-visible]`;
+        const panel = Polymer.dom(this.root).querySelector(selector);
+        if (!panel) {
+          return;
+        }
+        panel.setAttribute('hidden', true);
+        delete panel.dataset.visible;
+      },
+
+      _createPanelForIndex(index) {
+        const panel = document.createElement('arc-request-panel');
+        panel.setAttribute('request-panel-id', index);
+        const request = (this.activeRequests || [])[index];
+        panel.proxyRequest = request;
+        if (!this.__activeListeners) {
+          this.__activeListeners = {};
+        }
+        const callback = function(index, e) {
+          this._updateActiveRequestValue(index, e.detail.value);
+        };
+        this.__activeListeners[index] = callback.bind(this, index);
+        panel.addEventListener('request-changed', this.__activeListeners[index]);
+        Polymer.dom(this.root).querySelector('#requestsContainer')
+          .appendChild(panel);
+        return panel;
+      },
+
+      _updateActiveRequestValue(index, value) {
+        this.activeRequests[index] = value;
       },
       /**
        * Opens a request stored in the datastore in selected `tab`.
